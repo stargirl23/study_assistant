@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import uuid
@@ -10,7 +10,17 @@ from llm import extract_topics, generate_quiz, generate_adaptive_quiz, generate_
 
 app = Flask(__name__)
 CORS(app)
+@app.route('/')
+def index():
+    return send_from_directory('../frontend', 'index.html')
 
+@app.route('/quiz')
+def quiz():
+    return send_from_directory('../frontend', 'quiz.html')
+
+@app.route('/static/<path:filename>')
+def static_files(filename):
+    return send_from_directory('../frontend', filename)
 UPLOAD_FOLDER = "uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 

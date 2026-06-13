@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Quiz — Study Assistant</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <div class="container">
@@ -101,7 +101,7 @@
 </div>
 
 <script>
-    const API = 'http://127.0.0.1:5000';
+    const API = window.location.origin;
 
     // Get session ID from URL
     const params = new URLSearchParams(window.location.search);
@@ -379,8 +379,8 @@
     }
 
     function goHome() {
-        window.location.href = 'index.html';
-    }
+    window.location.href = '/';
+}
 
     function showError(msg) {
         const el = document.getElementById('error-alert');

@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Study Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <h1>📚 Study Assistant</h1>
+        <p>Upload your material, get quizzed, track your mastery</p>
+    </div>
+
+    <!-- Error Alert -->
+    <div id="error-alert" class="alert alert-error hidden"></div>
+
+    <!-- ── Session History ── -->
+<div class="card" id="history-card">
+    <div class="flex-row" style="justify-content:space-between;margin-bottom:16px;">
+        <h2 style="margin-bottom:0;">📂 Previous Sessions</h2>
+        <button class="btn btn-secondary" onclick="loadHistory()" style="padding:6px 14px;font-size:0.8rem;">Refresh</button>
+    </div>
+    <div id="history-list">
+        <p class="text-muted">Loading your sessions...</p>
+    </div>
+</div>
+
+<!-- ── STEP 1: Upload ── -->
+    <div id="upload-section" class="card">
+        <h2>Step 1 — Upload Study Material</h2>
+
+        <input type="text" id="session-name" placeholder="Session name (e.g. ML Chapter 3)" style="margin-bottom:16px;">
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('pdf')">Upload PDF</button>
+            <button class="tab" onclick="switchTab('text')">Paste Text</button>
+        </div>
+
+        <!-- PDF Tab -->
+        <div id="tab-pdf">
+            <div class="file-drop" id="file-drop" onclick="document.getElementById('file-input').click()">
+                <div class="icon">📄</div>
+                <p id="file-label">Click to upload or drag and drop a PDF</p>
+            </div>
+            <input type="file" id="file-input" accept=".pdf" class="hidden">
+        </div>
+
+        <!-- Text Tab -->
+        <div id="tab-text" class="hidden">
+            <textarea id="paste-text" rows="8" placeholder="Paste your study notes or textbook content here..."></textarea>
+        </div>
+
+        <button class="btn btn-primary btn-full mt-12" id="upload-btn" onclick="handleUpload()">
+            Process Material
+        </button>
+    </div>
+
+    <!-- ── STEP 2: Topics + Actions ── -->
+    <div id="result-section" class="hidden">
+
+        <!-- Topics Found -->
+        <div class="card">
+            <h2> Material Processed</h2>
+            <p class="text-muted">Topics extracted from your material:</p>
+            <div class="topic-tags" id="topic-tags"></div>
+            <hr class="divider">
+            <div class="flex-row">
+                <button class="btn btn-primary" onclick="goToQuiz()">
+                    🧠 Start Quiz
+                </button>
+                <button class="btn btn-secondary" onclick="loadSummary()">
+                    📋 View Summary
+                </button>
+            </div>
+        </div>
+
+        <!-- Summary -->
+        <div id="summary-card" class="card hidden">
+            <h2>📋 Summary</h2>
+            <div id="summary-loading" class="text-muted">Generating summary <span class="spinner"></span></div>
+            <ul class="summary-list" id="summary-list"></ul>
+        </div>
+
+        <!-- Q&A -->
+        <div class="card">
+            <h2>💬 Ask a Question</h2>
+            <div class="chat-messages" id="chat-messages">
+                <div class="message assistant">
+                    Hi! Ask me anything about your study material.
+                </div>
+            </div>
+            <div class="chat-input-row">
+                <textarea id="chat-input" placeholder="Type your question..." onkeydown="handleChatKey(event)"></textarea>
+                <button class="btn btn-primary" onclick="sendQuestion()">Send</button>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+    const API = 'http://127.0.0.1:5000';
+let currentSessionId = null;
+let currentTab = 'pdf';
+let summaryLoaded = false;
+
+// Generate or retrieve persistent user ID
+function getUserId() {
+    let uid = localStorage.getItem('study_user_id');
+    if (!uid) {
+        uid = 'user_' + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('study_user_id', uid);
+    }
+    return uid;
+}
+const USER_ID = getUserId();
+
+   // ── Session History ──
+
+async function loadHistory() {
+    const container = document.getElementById('history-list');
+    try {
+        const res = await fetch(`${API}/sessions?user_id=${USER_ID}`);
+        const data = await res.json();
+
+        if (!data.sessions || data.sessions.length === 0) {
+            container.innerHTML = '<p class="text-muted">No previous sessions yet. Upload material to get started.</p>';
+            return;
+        }
+
+        container.innerHTML = '';
+        data.sessions.forEach(session => {
+            const date = new Date(session.created_at).toLocaleDateString('en-IN', {
+                day: 'numeric', month: 'short', year: 'numeric'
+            });
+            const div = document.createElement('div');
+            div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;';
+            div.innerHTML = `
+                <div>
+                    <p style="font-size:0.9rem;font-weight:600;">${session.name}</p>
+                    <p class="text-muted" style="font-size:0.78rem;margin-top:2px;">${date}</p>
+                </div>
+                <button class="btn btn-secondary" style="padding:6px 14px;font-size:0.8rem;"
+                    onclick="resumeSession(${session.id}, '${session.name}')">
+                    Resume →
+                </button>
+            `;
+            container.appendChild(div);
+        });
+
+    } catch (err) {
+        container.innerHTML = '<p class="text-muted">Could not load sessions.</p>';
+    }
+}
+
+async function resumeSession(sessionId, sessionName) {
+    currentSessionId = sessionId;
+    document.getElementById('session-name').value = sessionName;
+
+    // Show loading state on the button
+    const buttons = document.querySelectorAll(`button[onclick*="resumeSession(${sessionId}"]`);
+
+    try {
+        // Step 1 — restore FAISS index from SQLite chunks
+        const restoreRes = await fetch(`${API}/restore/${sessionId}`, { method: 'POST' });
+        const restoreData = await restoreRes.json();
+
+        if (!restoreRes.ok) throw new Error(restoreData.error || 'Restore failed');
+
+        // Step 2 — load topics from dashboard
+        const dashRes = await fetch(`${API}/dashboard/${sessionId}`);
+        const dashData = await dashRes.json();
+
+        if (!dashRes.ok) throw new Error(dashData.error);
+
+        // Show topics
+        const tagContainer = document.getElementById('topic-tags');
+        tagContainer.innerHTML = '';
+        dashData.topics.forEach(topic => {
+            const tag = document.createElement('span');
+            tag.className = 'tag';
+            tag.textContent = topic.topic_name;
+            tagContainer.appendChild(tag);
+        });
+
+        // Remove old warning if present
+        const oldWarning = document.getElementById('resume-warning');
+        if (oldWarning) oldWarning.remove();
+
+        // Show success message
+        const div = document.createElement('div');
+        div.className = 'alert alert-success';
+        div.style.marginBottom = '16px';
+        div.textContent = `✅ Session restored — ${restoreData.num_chunks || 'all'} chunks reloaded. Quiz and Q&A are ready.`;
+        document.getElementById('result-section').prepend(div);
+        setTimeout(() => div.remove(), 4000);
+
+        document.getElementById('result-section').classList.remove('hidden');
+        document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+
+    } catch (err) {
+        showError('Could not restore session: ' + err.message);
+    }
+}
+
+function showResumeWarning() {
+    const existing = document.getElementById('resume-warning');
+    if (existing) return;
+    const div = document.createElement('div');
+    div.id = 'resume-warning';
+    div.className = 'alert';
+    div.style.cssText = 'background:rgba(234,179,8,0.1);border:1px solid rgba(234,179,8,0.3);color:#fde047;margin-bottom:16px;';
+    div.textContent = '⚠️ To use Quiz and Q&A, please re-upload your PDF — your mastery scores are saved and will continue from where you left off.';
+    document.getElementById('result-section').prepend(div);
+}
+
+// Auto-load history on page open
+window.addEventListener('load', loadHistory);
+
+// ── Tab Switching ──
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.querySelectorAll('.tab').forEach((t, i) => {
+            t.classList.toggle('active', (i === 0 && tab === 'pdf') || (i === 1 && tab === 'text'));
+        });
+        document.getElementById('tab-pdf').classList.toggle('hidden', tab !== 'pdf');
+        document.getElementById('tab-text').classList.toggle('hidden', tab !== 'text');
+    }
+
+    // ── File Drop ──
+
+    const fileInput = document.getElementById('file-input');
+    const fileDrop = document.getElementById('file-drop');
+    const fileLabel = document.getElementById('file-label');
+
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files[0]) {
+            fileLabel.textContent = `✅ ${fileInput.files[0].name}`;
+        }
+    });
+
+    fileDrop.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileDrop.classList.add('dragover');
+    });
+
+    fileDrop.addEventListener('dragleave', () => fileDrop.classList.remove('dragover'));
+
+    fileDrop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        fileDrop.classList.remove('dragover');
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.pdf')) {
+            fileInput.files = e.dataTransfer.files;
+            fileLabel.textContent = `${file.name}`;
+        } else {
+            showError('Only PDF files are supported.');
+        }
+    });
+
+    // ── Upload Handler ──
+
+    async function handleUpload() {
+        hideError();
+
+        const sessionName = document.getElementById('session-name').value.trim() || 'Untitled Session';
+        const btn = document.getElementById('upload-btn');
+
+        // Validate input
+        if (currentTab === 'pdf' && !fileInput.files[0]) {
+            showError('Please select a PDF file first.');
+            return;
+        }
+        if (currentTab === 'text' && !document.getElementById('paste-text').value.trim()) {
+            showError('Please paste some text first.');
+            return;
+        }
+
+        // Loading state
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Processing...';
+
+        try {
+            const formData = new FormData();
+            formData.append('session_name', sessionName);
+            formData.append('user_id', USER_ID);
+
+            if (currentTab === 'pdf') {
+                formData.append('file', fileInput.files[0]);
+            } else {
+                formData.append('text', document.getElementById('paste-text').value.trim());
+            }
+
+            const res = await fetch(`${API}/upload`, { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+            currentSessionId = data.session_id;
+
+            // Show topics
+            const tagContainer = document.getElementById('topic-tags');
+            tagContainer.innerHTML = '';
+            data.topics.forEach(topic => {
+                const tag = document.createElement('span');
+                tag.className = 'tag';
+                tag.textContent = topic;
+                tagContainer.appendChild(tag);
+            });
+
+            // Show result section
+            document.getElementById('result-section').classList.remove('hidden');
+            document.getElementById('result-section').scrollIntoView({ behavior: 'smooth' });
+
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = 'Process Material';
+        }
+    }
+
+    // ── Summary ──
+
+    async function loadSummary() {
+        const card = document.getElementById('summary-card');
+        card.classList.remove('hidden');
+
+        if (summaryLoaded) {
+            card.scrollIntoView({ behavior: 'smooth' });
+            return;
+        }
+
+        document.getElementById('summary-loading').classList.remove('hidden');
+        document.getElementById('summary-list').innerHTML = '';
+
+        try {
+            const res = await fetch(`${API}/summary/${currentSessionId}`);
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error);
+
+            const list = document.getElementById('summary-list');
+            data.summary.forEach(point => {
+                const li = document.createElement('li');
+                li.textContent = point;
+                list.appendChild(li);
+            });
+
+            summaryLoaded = true;
+        } catch (err) {
+            showError(err.message);
+        } finally {
+            document.getElementById('summary-loading').classList.add('hidden');
+            card.scrollIntoView({ behavior: 'smooth' });
+        }
+    }
+
+    // ── Q&A ──
+
+    async function sendQuestion() {
+        const input = document.getElementById('chat-input');
+        const question = input.value.trim();
+        if (!question || !currentSessionId) return;
+
+        input.value = '';
+        appendMessage('user', question);
+        const loadingMsg = appendMessage('assistant', '<span class="spinner"></span> Thinking...');
+
+        try {
+            const res = await fetch(`${API}/ask`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId, question })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+            loadingMsg.innerHTML = data.answer;
+        } catch (err) {
+            loadingMsg.innerHTML = `❌ ${err.message}`;
+        }
+    }
+
+    function handleChatKey(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendQuestion();
+        }
+    }
+
+    function appendMessage(role, html) {
+        const container = document.getElementById('chat-messages');
+        const msg = document.createElement('div');
+        msg.className = `message ${role}`;
+        msg.innerHTML = html;
+        container.appendChild(msg);
+        container.scrollTop = container.scrollHeight;
+        return msg;
+    }
+
+    // ── Navigate to Quiz ──
+
+    function goToQuiz() {
+        if (!currentSessionId) return;
+        window.location.href = `quiz.html?session=${currentSessionId}`;
+    }
+
+    // ── Utilities ──
+
+    function showError(msg) {
+        const el = document.getElementById('error-alert');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+
+    function hideError() {
+        document.getElementById('error-alert').classList.add('hidden');
+    }
+</script>
+</body>
+</html>

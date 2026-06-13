@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quiz — Study Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+
+    <!-- Header -->
+    <div class="header">
+        <h1>🧠 Quiz Time</h1>
+        <p id="quiz-subtitle">Loading your quiz...</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-alert" class="alert alert-error hidden"></div>
+
+    <!-- ── Loading Screen ── -->
+    <div id="loading-screen" class="card" style="text-align:center; padding: 48px;">
+        <div class="spinner" style="width:32px;height:32px;border-width:3px;margin:0 auto 16px;"></div>
+        <p id="loading-text" class="text-muted">Generating your quiz...</p>
+    </div>
+
+    <!-- ── All Mastered Screen ── -->
+    <div id="mastered-screen" class="card hidden" style="text-align:center; padding:48px;">
+        <div style="font-size:3rem;margin-bottom:16px;">🎉</div>
+        <h2 style="margin-bottom:8px;">You've mastered all topics!</h2>
+        <p class="text-muted" style="margin-bottom:24px;">Great work — you scored 80%+ on every topic in this material.</p>
+        <button class="btn btn-primary" onclick="goHome()">← Back to Home</button>
+    </div>
+
+    <!-- ── Quiz Screen ── -->
+    <div id="quiz-screen" class="hidden">
+
+        <!-- Progress -->
+        <div class="card" style="padding:16px 28px;">
+            <div class="flex-row" style="justify-content:space-between;">
+                <span class="text-muted" id="progress-label">Question 1 of 8</span>
+                <span class="text-muted" id="round-label">Round 1 — Initial Quiz</span>
+            </div>
+            <div class="progress-bar" style="margin-top:10px;">
+                <div class="progress-fill fill-green" id="quiz-progress" style="width:0%"></div>
+            </div>
+        </div>
+
+        <!-- Question Card -->
+        <div class="card" id="question-card">
+            <p class="text-muted" id="question-topic" style="margin-bottom:8px;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.05em;"></p>
+            <h2 id="question-text" style="font-size:1.1rem;font-weight:600;margin-bottom:24px;line-height:1.5;"></h2>
+
+            <div id="options-container" style="display:flex;flex-direction:column;gap:10px;"></div>
+
+            <div id="feedback-box" class="hidden" style="margin-top:20px;padding:14px 16px;border-radius:8px;font-size:0.88rem;line-height:1.5;"></div>
+
+            <button class="btn btn-primary btn-full mt-20 hidden" id="next-btn" onclick="nextQuestion()">
+                Next Question →
+            </button>
+        </div>
+
+    </div>
+
+    <!-- ── Results Screen ── -->
+    <div id="results-screen" class="hidden">
+
+        <!-- Score Card -->
+        <div class="card" style="text-align:center;padding:36px;">
+            <div id="score-emoji" style="font-size:3rem;margin-bottom:12px;"></div>
+            <h2 id="score-title" style="margin-bottom:8px;"></h2>
+            <p id="score-subtitle" class="text-muted" style="margin-bottom:24px;"></p>
+            <div style="font-size:2.5rem;font-weight:700;color:var(--accent);" id="score-display"></div>
+        </div>
+
+        <!-- Mastery Dashboard -->
+        <div class="card">
+            <h2>📊 Mastery Dashboard</h2>
+            <p class="text-muted" style="margin-bottom:20px;">Your progress per topic</p>
+            <div id="mastery-bars"></div>
+        </div>
+
+        <!-- Answer Review -->
+        <div class="card">
+            <h2>📝 Answer Review</h2>
+            <div id="answer-review" style="display:flex;flex-direction:column;gap:16px;margin-top:4px;"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex-row" style="margin-bottom:40px;">
+            <button class="btn btn-primary" id="next-round-btn" onclick="startNextRound()">
+                🔁 Re-test Weak Topics
+            </button>
+            <button class="btn btn-secondary" onclick="goHome()">
+                ← Back to Home
+            </button>
+        </div>
+
+    </div>
+
+</div>
+
+<script>
+    const API = 'http://127.0.0.1:5000';
+
+    // Get session ID from URL
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session');
+
+    let quiz = [];
+    let currentIndex = 0;
+    let userAnswers = [];
+    let roundNumber = 1;
+    let quizType = 'initial';
+
+    // ── Init ──
+
+    window.addEventListener('load', () => {
+        if (!sessionId) {
+            showError('No session found. Please go back and upload material.');
+            document.getElementById('loading-screen').classList.add('hidden');
+            return;
+        }
+        loadQuiz();
+    });
+
+    // ── Load Quiz ──
+
+    async function loadQuiz() {
+        showScreen('loading-screen');
+        document.getElementById('loading-text').textContent = roundNumber === 1
+            ? 'Generating your quiz...'
+            : 'Generating adaptive quiz for weak topics...';
+
+        try {
+            const res = await fetch(`${API}/generate-quiz/${sessionId}`);
+            const data = await res.json();
+
+            if (!res.ok) throw new Error(data.error || 'Failed to generate quiz');
+
+            if (data.all_mastered) {
+                showScreen('mastered-screen');
+                return;
+            }
+
+            quiz = data.quiz;
+            quizType = data.quiz_type;
+            currentIndex = 0;
+            userAnswers = [];
+
+            document.getElementById('quiz-subtitle').textContent =
+                quizType === 'initial'
+                    ? `${quiz.length} questions across all topics`
+                    : `${quiz.length} questions on your weak topics`;
+
+            document.getElementById('round-label').textContent =
+                quizType === 'initial'
+                    ? 'Round 1 — Initial Quiz'
+                    : `Round ${roundNumber} — Adaptive Quiz`;
+
+            showScreen('quiz-screen');
+            renderQuestion();
+
+        } catch (err) {
+            showError(err.message);
+            document.getElementById('loading-screen').classList.add('hidden');
+        }
+    }
+
+    // ── Render Question ──
+
+    function renderQuestion() {
+        const q = quiz[currentIndex];
+
+        // Progress
+        document.getElementById('progress-label').textContent =
+            `Question ${currentIndex + 1} of ${quiz.length}`;
+        document.getElementById('quiz-progress').style.width =
+            `${((currentIndex) / quiz.length) * 100}%`;
+
+        // Question
+        document.getElementById('question-topic').textContent = q.topic || '';
+        document.getElementById('question-text').textContent = q.question;
+
+        // Options
+        const container = document.getElementById('options-container');
+        container.innerHTML = '';
+
+        ['A', 'B', 'C', 'D'].forEach(letter => {
+            const btn = document.createElement('button');
+            btn.className = 'option-btn';
+            btn.innerHTML = `<span class="option-letter">${letter}</span> ${q.options[letter]}`;
+            btn.onclick = () => selectAnswer(letter, btn);
+            container.appendChild(btn);
+        });
+
+        // Reset feedback
+        document.getElementById('feedback-box').classList.add('hidden');
+        document.getElementById('next-btn').classList.add('hidden');
+    }
+
+    // ── Select Answer ──
+
+    function selectAnswer(letter, clickedBtn) {
+        // Prevent re-answering
+        document.querySelectorAll('.option-btn').forEach(btn => btn.disabled = true);
+
+        const q = quiz[currentIndex];
+        const isCorrect = letter === q.correct_answer;
+
+        // Style buttons
+        document.querySelectorAll('.option-btn').forEach(btn => {
+            const btnLetter = btn.querySelector('.option-letter').textContent;
+            if (btnLetter === q.correct_answer) {
+                btn.style.background = 'rgba(34, 197, 94, 0.15)';
+                btn.style.borderColor = '#22c55e';
+                btn.style.color = '#86efac';
+            } else if (btnLetter === letter && !isCorrect) {
+                btn.style.background = 'rgba(239, 68, 68, 0.15)';
+                btn.style.borderColor = '#ef4444';
+                btn.style.color = '#fca5a5';
+            }
+        });
+
+        // Feedback
+        const feedback = document.getElementById('feedback-box');
+        feedback.classList.remove('hidden');
+        if (isCorrect) {
+            feedback.style.background = 'rgba(34, 197, 94, 0.1)';
+            feedback.style.border = '1px solid rgba(34, 197, 94, 0.3)';
+            feedback.style.color = '#86efac';
+            feedback.innerHTML = `✅ Correct! ${q.explanation}`;
+        } else {
+            feedback.style.background = 'rgba(239, 68, 68, 0.1)';
+            feedback.style.border = '1px solid rgba(239, 68, 68, 0.3)';
+            feedback.style.color = '#fca5a5';
+            feedback.innerHTML = `❌ Incorrect. The correct answer is <strong>${q.correct_answer}</strong>. ${q.explanation}`;
+        }
+
+        // Store answer
+        userAnswers.push({
+            topic_id: q.topic_id,
+            question: q.question,
+            user_answer: letter,
+            correct_answer: q.correct_answer,
+            is_correct: isCorrect,
+            topic: q.topic,
+            options: q.options,
+            explanation: q.explanation
+        });
+
+        document.getElementById('next-btn').classList.remove('hidden');
+    }
+
+    // ── Next Question ──
+
+    function nextQuestion() {
+        currentIndex++;
+        if (currentIndex < quiz.length) {
+            renderQuestion();
+        } else {
+            submitAnswers();
+        }
+    }
+
+    // ── Submit Answers ──
+
+    async function submitAnswers() {
+        showScreen('loading-screen');
+        document.getElementById('loading-text').textContent = 'Saving your results...';
+
+        try {
+            const res = await fetch(`${API}/submit-answers`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ answers: userAnswers })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error);
+
+            await loadResults(data);
+
+        } catch (err) {
+            showError(err.message);
+            document.getElementById('loading-screen').classList.add('hidden');
+        }
+    }
+
+    // ── Load Results ──
+
+    async function loadResults(scoreData) {
+        // Fetch dashboard
+        const res = await fetch(`${API}/dashboard/${sessionId}`);
+        const dashboard = await res.json();
+
+        // Score display
+        const pct = scoreData.score_percent;
+        document.getElementById('score-display').textContent = `${pct}%`;
+
+        if (pct === 100) {
+            document.getElementById('score-emoji').textContent = '🏆';
+            document.getElementById('score-title').textContent = 'Perfect Score!';
+            document.getElementById('score-subtitle').textContent = 'You nailed every question this round.';
+        } else if (pct >= 70) {
+            document.getElementById('score-emoji').textContent = '👏';
+            document.getElementById('score-title').textContent = 'Good Work!';
+            document.getElementById('score-subtitle').textContent = `${scoreData.correct} of ${scoreData.total} correct — keep going on the weak topics.`;
+        } else {
+            document.getElementById('score-emoji').textContent = '💪';
+            document.getElementById('score-title').textContent = 'Keep Practicing!';
+            document.getElementById('score-subtitle').textContent = `${scoreData.correct} of ${scoreData.total} correct — the adaptive quiz will focus on your weak areas.`;
+        }
+
+        // Mastery bars
+        const barsContainer = document.getElementById('mastery-bars');
+        barsContainer.innerHTML = '';
+        dashboard.topics.forEach(topic => {
+            const score = Math.round(topic.mastery_score);
+            const colorClass = score >= 80 ? 'fill-green' : score >= 50 ? 'fill-yellow' : 'fill-red';
+            const label = score >= 80 ? '✅ Mastered' : score >= 50 ? '⚡ In Progress' : '❌ Weak';
+
+            barsContainer.innerHTML += `
+                <div class="topic-row">
+                    <div class="label">
+                        <span>${topic.topic_name}</span>
+                        <span>${score}% — ${label}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill ${colorClass}" style="width:${score}%"></div>
+                    </div>
+                </div>
+            `;
+        });
+
+        // Answer review
+        const reviewContainer = document.getElementById('answer-review');
+        reviewContainer.innerHTML = '';
+        userAnswers.forEach(ans => {
+            const color = ans.is_correct ? '#86efac' : '#fca5a5';
+            const bg = ans.is_correct ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)';
+            const border = ans.is_correct ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)';
+
+            reviewContainer.innerHTML += `
+                <div style="background:${bg};border:1px solid ${border};border-radius:10px;padding:16px;">
+                    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;">${ans.topic}</p>
+                    <p style="font-size:0.9rem;font-weight:600;margin-bottom:10px;">${ans.question}</p>
+                    <p style="font-size:0.85rem;color:${color};">
+                        Your answer: <strong>${ans.user_answer} — ${ans.options[ans.user_answer]}</strong>
+                    </p>
+                    ${!ans.is_correct ? `<p style="font-size:0.85rem;color:#86efac;margin-top:4px;">
+                        Correct: <strong>${ans.correct_answer} — ${ans.options[ans.correct_answer]}</strong>
+                    </p>` : ''}
+                    <p style="font-size:0.82rem;color:var(--text-muted);margin-top:8px;">${ans.explanation}</p>
+                </div>
+            `;
+        });
+
+        // Hide re-test button if all mastered
+        if (dashboard.all_mastered) {
+            document.getElementById('next-round-btn').classList.add('hidden');
+        }
+
+        showScreen('results-screen');
+    }
+
+    // ── Next Round ──
+
+    function startNextRound() {
+        roundNumber++;
+        loadQuiz();
+    }
+
+    // ── Utilities ──
+
+    function showScreen(id) {
+        ['loading-screen', 'quiz-screen', 'results-screen', 'mastered-screen'].forEach(s => {
+            document.getElementById(s).classList.toggle('hidden', s !== id);
+        });
+    }
+
+    function goHome() {
+        window.location.href = 'index.html';
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('error-alert');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+</script>
+
+<!-- Option button styles -->
+<style>
+    .option-btn {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        color: var(--text);
+        padding: 12px 16px;
+        text-align: left;
+        cursor: pointer;
+        font-size: 0.9rem;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .option-btn:hover:not(:disabled) {
+        border-color: var(--accent);
+        background: rgba(108, 99, 255, 0.08);
+    }
+
+    .option-letter {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 6px;
+        background: var(--border);
+        font-weight: 700;
+        font-size: 0.8rem;
+        flex-shrink: 0;
+    }
+</style>
+</body>
+</html>

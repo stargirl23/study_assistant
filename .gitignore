@@ -1,0 +1,9 @@
+config.py
+*.db
+__pycache__/
+*.pyc
+*.pyo
+backend/uploads/
+venv/
+env/
+.DS_Store

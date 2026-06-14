@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: study-assistant
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && gunicorn app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false

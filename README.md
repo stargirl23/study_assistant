@@ -1,4 +1,4 @@
-# 📚 Adaptive Study Assistant
+# Adaptive Study Assistant
 
 An intelligent study companion that turns your notes and PDFs into a personalized quiz experience — and keeps re-testing you on weak areas until you've truly mastered the material.
 
@@ -6,7 +6,7 @@ Built with a RAG (Retrieval-Augmented Generation) pipeline from scratch, without
 
 ---
 
-## ✨ Features
+## Features
 
 - **Upload PDF or paste text** — supports any study material
 - **Automatic topic extraction** — LLM identifies 5–10 key concepts from your material
@@ -20,7 +20,7 @@ Built with a RAG (Retrieval-Augmented Generation) pipeline from scratch, without
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 User uploads PDF / pastes text
@@ -60,7 +60,7 @@ User uploads PDF / pastes text
 
 ---
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 | Layer | Technology | Purpose |
 |---|---|---|
@@ -74,7 +74,7 @@ User uploads PDF / pastes text
 
 ---
 
-## 🔄 How Adaptive Quizzing Works
+## How Adaptive Quizzing Works
 
 ```
 Round 1: Generate 1 MCQ per topic (e.g. 8 topics = 8 questions)
@@ -95,7 +95,7 @@ This mirrors spaced repetition principles — focusing effort where it's needed 
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 study_assistant/
@@ -120,7 +120,7 @@ study_assistant/
 
 ---
 
-## ⚙️ Running Locally
+## Running Locally
 
 ### Prerequisites
 - Python 3.10+
@@ -150,7 +150,7 @@ Then open `http://127.0.0.1:5000` in your browser.
 
 ---
 
-## 🗄️ Database Schema
+## Database Schema
 
 ```sql
 -- Study sessions per user
@@ -168,7 +168,7 @@ chunks (id, session_id, chunk_index, content)
 
 ---
 
-## 🔑 Key Design Decisions
+## Key Design Decisions
 
 **Why RAG instead of just sending the full PDF to the LLM?**
 LLMs have context window limits. A 50-page PDF would exceed most limits and cost significantly more tokens. RAG retrieves only the 3 most relevant chunks per query — efficient and accurate.
